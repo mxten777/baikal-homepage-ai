@@ -1,0 +1,148 @@
+// ============================================
+// BAIKAL Public CMS - Database Schema
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── 사용자 ──
+enum Role {
+  SUPER_ADMIN
+  EDITOR
+  VIEWER
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String?
+  role      Role     @default(VIEWER)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  posts     Post[]
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+// ── 게시글 ──
+enum PostCategory {
+  NOTICE
+  ARCHIVE
+}
+
+model Post {
+  id        String       @id @default(uuid())
+  title     String
+  content   String       @db.Text
+  category  PostCategory @default(NOTICE)
+  published Boolean      @default(false)
+  viewCount Int          @default(0) @map("view_count")
+  authorId  String       @map("author_id")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  author      User         @relation(fields: [authorId], references: [id])
+  attachments Attachment[]
+
+  @@index([category])
+  @@index([createdAt])
+  @@map("posts")
+}
+
+// ── 첨부파일 ──
+model Attachment {
+  id        String   @id @default(uuid())
+  fileName  String   @map("file_name")
+  fileUrl   String   @map("file_url")
+  fileSize  Int?     @map("file_size")
+  mimeType  String?  @map("mime_type")
+  postId    String   @map("post_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+// ── 페이지 (CMS 관리) ──
+model Page {
+  id        String   @id @default(uuid())
+  title     String
+  slug      String   @unique
+  content   String   @db.Text
+  metaTitle       String? @map("meta_title")
+  metaDescription String? @map("meta_description")
+  published Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("pages")
+}
+
+// ── 메뉴 ──
+model Menu {
+  id       String  @id @default(uuid())
+  title    String
+  url      String
+  order    Int     @default(0)
+  parentId String? @map("parent_id")
+  visible  Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  parent   Menu?   @relation("MenuHierarchy", fields: [parentId], references: [id])
+  children Menu[]  @relation("MenuHierarchy")
+
+  @@index([order])
+  @@map("menus")
+}
+
+// ── 배너 ──
+model Banner {
+  id        String   @id @default(uuid())
+  title     String
+  imageUrl  String   @map("image_url")
+  linkUrl   String?  @map("link_url")
+  order     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("banners")
+}
+
+// ── 사이트 설정 ──
+model SiteSetting {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("site_settings")
+}
+
+// ── 감사 로그 ──
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  action    String
+  target    String?
+  detail    String?  @db.Text
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

@@ -1,36 +1,289 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BAIKAL Public CMS
 
-## Getting Started
+공공기관 홈페이지 + 관리자 CMS 플랫폼
 
-First, run the development server:
+## 🏗 시스템 아키텍처
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+┌─────────────────────────────────────────────────────────┐
+│                    BAIKAL Public CMS                    │
+├─────────────┬───────────────────┬───────────────────────┤
+│  Public Web │   Admin CMS       │   API Layer           │
+│  (SSR/SSG)  │   (Client-side)   │   (REST API)          │
+├─────────────┴───────────────────┴───────────────────────┤
+│                 Next.js 14 (App Router)                 │
+│                      TypeScript                         │
+│                      TailwindCSS                        │
+├─────────────────────────────────────────────────────────┤
+│              Prisma ORM + PostgreSQL                    │
+├──────────────────┬──────────────────────────────────────┤
+│  S3 Storage      │  (향후) BAIKAL Private AI / RAG      │
+│  (MinIO)         │                                      │
+└──────────────────┴──────────────────────────────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 📁 프로젝트 구조
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+baikal-homepage-ai/
+├── prisma/
+│   ├── schema.prisma          # DB 스키마
+│   ├── seed.ts                # 초기 데이터
+│   └── migrations/            # 마이그레이션
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx         # 루트 레이아웃
+│   │   ├── globals.css        # 글로벌 CSS
+│   │   ├── sitemap.ts         # SEO: sitemap.xml
+│   │   ├── robots.ts          # SEO: robots.txt
+│   │   ├── (public)/          # 🌐 공개 홈페이지
+│   │   │   ├── layout.tsx     #   공개 레이아웃 (Header+Footer)
+│   │   │   ├── page.tsx       #   메인 페이지
+│   │   │   ├── about/         #   기관소개
+│   │   │   ├── business/      #   사업소개
+│   │   │   ├── organization/  #   조직도
+│   │   │   ├── contact/       #   오시는길
+│   │   │   └── board/
+│   │   │       ├── notice/    #   공지사항 (목록/상세)
+│   │   │       └── archive/   #   자료실
+│   │   ├── admin/             # 🔒 관리자 CMS
+│   │   │   ├── page.tsx       #   로그인 페이지
+│   │   │   ├── layout.tsx     #   관리자 메타
+│   │   │   └── (dashboard)/   #   인증 필요 영역
+│   │   │       ├── layout.tsx #     사이드바 레이아웃
+│   │   │       ├── dashboard/ #     대시보드
+│   │   │       ├── posts/     #     게시판 관리
+│   │   │       ├── pages/     #     페이지 관리
+│   │   │       ├── menus/     #     메뉴 관리
+│   │   │       ├── banners/   #     배너 관리
+│   │   │       ├── settings/  #     사이트 설정
+│   │   │       └── audit-logs/#     감사 로그
+│   │   └── api/               # 📡 API Routes
+│   │       ├── auth/
+│   │       │   ├── login/     #     POST 로그인
+│   │       │   ├── logout/    #     POST 로그아웃
+│   │       │   └── me/        #     GET 현재 사용자
+│   │       ├── posts/         #     CRUD 게시글
+│   │       ├── pages/         #     CRUD 페이지
+│   │       ├── menus/         #     CRUD 메뉴
+│   │       └── banners/       #     CRUD 배너
+│   ├── components/
+│   │   ├── common/            # 공통 컴포넌트
+│   │   │   ├── Breadcrumb.tsx
+│   │   │   ├── Pagination.tsx
+│   │   │   └── SearchBox.tsx
+│   │   └── layout/
+│   │       ├── Header.tsx     # 공개 사이트 헤더
+│   │       └── Footer.tsx     # 공개 사이트 푸터
+│   ├── lib/
+│   │   ├── prisma.ts          # DB 클라이언트
+│   │   ├── auth.ts            # JWT/bcrypt 인증
+│   │   ├── middleware.ts      # API 미들웨어
+│   │   ├── audit.ts           # 감사 로그
+│   │   ├── api-response.ts    # API 응답 헬퍼
+│   │   └── utils.ts           # 유틸리티 함수
+│   └── middleware.ts          # Next.js 미들웨어
+├── docker-compose.yml         # Docker 구성
+├── Dockerfile                 # 프로덕션 빌드
+└── package.json
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🗄 DB 설계
 
-## Learn More
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│    users     │     │    posts     │     │ attachments  │
+├──────────────┤     ├──────────────┤     ├──────────────┤
+│ id (PK)      │──┐  │ id (PK)      │──┐  │ id (PK)      │
+│ email        │  │  │ title        │  │  │ file_name    │
+│ password     │  │  │ content      │  │  │ file_url     │
+│ name         │  └──│ author_id(FK)│  └──│ post_id (FK) │
+│ role (enum)  │     │ category     │     │ file_size    │
+│ created_at   │     │ published    │     │ mime_type    │
+│ updated_at   │     │ view_count   │     │ created_at   │
+└──────────────┘     │ created_at   │     └──────────────┘
+                     │ updated_at   │
+                     └──────────────┘
 
-To learn more about Next.js, take a look at the following resources:
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│    pages     │     │    menus     │     │   banners    │
+├──────────────┤     ├──────────────┤     ├──────────────┤
+│ id (PK)      │     │ id (PK)      │     │ id (PK)      │
+│ title        │     │ title        │     │ title        │
+│ slug (UQ)    │     │ url          │     │ image_url    │
+│ content      │     │ order        │     │ link_url     │
+│ meta_title   │     │ parent_id    │     │ order        │
+│ meta_desc    │     │ visible      │     │ active       │
+│ published    │     │ created_at   │     │ created_at   │
+│ created_at   │     │ updated_at   │     │ updated_at   │
+│ updated_at   │     └──────────────┘     └──────────────┘
+└──────────────┘
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+┌──────────────┐     ┌──────────────┐
+│ site_settings│     │ audit_logs   │
+├──────────────┤     ├──────────────┤
+│ id (PK)      │     │ id (PK)      │
+│ key (UQ)     │     │ user_id (FK) │
+│ value        │     │ action       │
+│ created_at   │     │ target       │
+│ updated_at   │     │ detail       │
+└──────────────┘     │ ip_address   │
+                     │ created_at   │
+                     └──────────────┘
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Role 권한
 
-## Deploy on Vercel
+| Role | 게시글 | 페이지 | 메뉴 | 설정 | 로그 |
+|------|--------|--------|------|------|------|
+| SUPER_ADMIN | CRUD | CRUD | CRUD | CRUD | 조회 |
+| EDITOR | CRU | CRU | 조회 | 조회 | - |
+| VIEWER | 조회 | 조회 | 조회 | - | - |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🔐 보안
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Password**: bcrypt (12 rounds)
+- **JWT**: jose 라이브러리, HS256, HttpOnly Cookie
+- **Middleware**: 관리자 경로 보호 + 보안 헤더
+- **Audit Log**: 모든 관리 작업 기록
+- **확장 준비**: 2FA(TOTP), IP Whitelist 구조 포함
+
+## 🚀 빠른 시작
+
+### 1. Docker로 실행 (권장)
+
+```bash
+# PostgreSQL + MinIO 실행
+docker-compose up -d postgres minio
+
+# 의존성 설치 & DB 세팅
+npm install
+npx prisma generate
+npx prisma db push
+npm run db:seed
+
+# 개발 서버 실행
+npm run dev
+```
+
+### 2. 원클릭 세팅
+
+```bash
+docker-compose up -d postgres minio
+npm run setup
+npm run dev
+```
+
+### 접속 정보
+
+| URL | 설명 |
+|-----|------|
+| http://localhost:3000 | 공개 홈페이지 |
+| http://localhost:3000/admin | 관리자 로그인 |
+| http://localhost:9001 | MinIO Console |
+
+### 관리자 계정
+
+| 역할 | 이메일 | 비밀번호 |
+|------|--------|----------|
+| Super Admin | admin@baikal.co.kr | admin1234! |
+| Editor | editor@baikal.co.kr | editor1234! |
+| Viewer | viewer@baikal.co.kr | viewer1234! |
+
+## 📡 API 구조
+
+| Method | Endpoint | 설명 | 권한 |
+|--------|----------|------|------|
+| POST | /api/auth/login | 로그인 | Public |
+| POST | /api/auth/logout | 로그아웃 | Public |
+| GET | /api/auth/me | 현재 사용자 | Auth |
+| GET | /api/posts | 게시글 목록 | Public |
+| POST | /api/posts | 게시글 작성 | Admin/Editor |
+| GET | /api/posts/:id | 게시글 상세 | Public |
+| PUT | /api/posts/:id | 게시글 수정 | Admin/Editor |
+| DELETE | /api/posts/:id | 게시글 삭제 | Admin |
+| GET | /api/pages | 페이지 목록 | Public |
+| POST | /api/pages | 페이지 생성 | Admin/Editor |
+| GET | /api/pages/:slug | 페이지 조회 | Public |
+| PUT | /api/pages/:slug | 페이지 수정 | Admin/Editor |
+| DELETE | /api/pages/:slug | 페이지 삭제 | Admin |
+| GET | /api/menus | 메뉴 목록 | Public |
+| POST | /api/menus | 메뉴 추가 | Admin |
+| PUT | /api/menus | 메뉴 순서 변경 | Admin |
+| PUT | /api/menus/:id | 메뉴 수정 | Admin |
+| DELETE | /api/menus/:id | 메뉴 삭제 | Admin |
+| GET | /api/banners | 배너 목록 | Public |
+| POST | /api/banners | 배너 생성 | Admin |
+
+## 🌐 SEO & 웹접근성
+
+### SEO
+- `sitemap.xml` 자동 생성 (Next.js App Router)
+- `robots.txt` 자동 생성
+- 페이지별 meta tag (title, description, og tags)
+- Semantic HTML 구조
+
+### 웹접근성 (KWCAG)
+- 스킵 네비게이션 (본문 바로가기)
+- Semantic HTML (`header`, `nav`, `main`, `footer`, `article`, `section`)
+- `aria-label`, `aria-current`, `role` 속성
+- `alt` 태그 (이미지)
+- 키보드 탐색 (`focus-visible` 스타일)
+- 테이블 `scope` 속성
+- 색상 대비 준수
+
+## 📅 개발 순서 (2~3주)
+
+### Week 1: 기초 인프라 ✅
+- [x] 프로젝트 초기화 (Next.js 14 + TypeScript + Tailwind)
+- [x] DB 스키마 설계 (Prisma + PostgreSQL)
+- [x] 인증 시스템 (JWT + bcrypt)
+- [x] API 라우트 구현
+- [x] Docker 환경 구성
+- [x] 공개 홈페이지 퍼블리싱
+- [x] 관리자 CMS UI 구현
+
+### Week 2: 핵심 기능
+- [ ] 관리자 CMS 기능 연동 (API ↔ UI)
+- [ ] 파일 업로드 (S3/MinIO)
+- [ ] 리치 텍스트 에디터(WYSIWYG) 연동
+- [ ] 게시판 검색/페이징 서버사이드 연동
+- [ ] 페이지 CMS 동적 렌더링
+
+### Week 3: 완성 & 배포
+- [ ] 웹접근성 점검 & 보완
+- [ ] SEO 최적화 마무리
+- [ ] 성능 최적화 (ISR, 캐싱)
+- [ ] E2E 테스트
+- [ ] 프로덕션 배포 (Docker)
+
+## 🔮 확장 로드맵
+
+### Phase 2: AI 연동
+- BAIKAL Private AI 연동
+- RAG 문서검색 기능
+- AI 기반 문서 작성 지원
+- AI 기반 콘텐츠 자동 요약
+
+### Phase 3: SaaS 플랫폼
+- 멀티테넌시 구조
+- 커스텀 도메인 지원
+- 테마 시스템
+- 플러그인 구조
+- 사용량 기반 과금
+
+## 📝 기술 스택
+
+| 분류 | 기술 |
+|------|------|
+| Frontend | Next.js 14 (App Router), TypeScript, TailwindCSS |
+| Backend | Next.js API Routes |
+| Database | PostgreSQL (Prisma ORM) |
+| Auth | JWT (jose) + bcrypt |
+| Storage | S3 Compatible (MinIO / Supabase Storage) |
+| Container | Docker, Docker Compose |
+| Deploy | Standalone Build |
+
+## License
+
+Proprietary - BAIKAL AI

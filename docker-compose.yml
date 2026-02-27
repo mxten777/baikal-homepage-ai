@@ -1,0 +1,66 @@
+version: "3.8"
+
+services:
+  # ── PostgreSQL ──
+  postgres:
+    image: postgres:16-alpine
+    container_name: baikal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: baikal_cms
+      POSTGRES_USER: baikal
+      POSTGRES_PASSWORD: baikal_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U baikal -d baikal_cms"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MinIO (S3 Compatible Storage) ──
+  minio:
+    image: minio/minio:latest
+    container_name: baikal-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Next.js App ──
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: baikal-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://baikal:baikal_secret@postgres:5432/baikal_cms?schema=public
+      JWT_SECRET: baikal-cms-jwt-secret-change-this-in-production
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: baikal-cms
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  minio-data:
